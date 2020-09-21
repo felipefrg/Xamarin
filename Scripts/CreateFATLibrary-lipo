@@ -1,0 +1,89 @@
+echo "## START ##"
+
+FRAMEWORKS=( Alamofire EncriptaCrypto ExternPlayer FairPlay M3U8Processor PlayerProtocols) 
+
+echo "Total Frameworks: ${FRAMEWORKS[@]}"
+
+for fmk in ${FRAMEWORKS[@]}; do 
+FRAMEWORK_NAME=$fmk
+
+SIMULATOR_LIBRARY_PATH="${BUILD_DIR}/${CONFIGURATION}-iphonesimulator/${FRAMEWORK_NAME}.framework"
+DEVICE_LIBRARY_PATH="${BUILD_DIR}/${CONFIGURATION}-iphoneos/${FRAMEWORK_NAME}.framework"
+DEVICE_BCSYMBOLMAP_PATH="${BUILD_DIR}/${CONFIGURATION}-iphoneos"
+DEVICE_DSYM_PATH="${BUILD_DIR}/${CONFIGURATION}-iphoneos/${FRAMEWORK_NAME}.framework.dSYM"
+SIMULATOR_DSYM_PATH="${BUILD_DIR}/${CONFIGURATION}-iphonesimulator/${FRAMEWORK_NAME}.framework.dSYM"
+UNIVERSAL_LIBRARY_DIR="${BUILD_DIR}/${CONFIGURATION}-iphoneuniversal"
+FRAMEWORK="${UNIVERSAL_LIBRARY_DIR}/${FRAMEWORK_NAME}.framework"
+OUTPUT_DIR="./${FRAMEWORK_NAME}-Aggregated"
+
+echo "##FRAMEWORK_NAME: " ${FRAMEWORK_NAME} "##
+echo "##SIMULATOR_LIBRARY_PATH: " ${SIMULATOR_LIBRARY_PATH} "##
+echo "##DEVICE_LIBRARY_PATH: " ${DEVICE_LIBRARY_PATH} "##
+echo "##DEVICE_BCSYMBOLMAP_PATH: " ${DEVICE_BCSYMBOLMAP_PATH} "##
+echo "##DEVICE_DSYM_PATH: " ${DEVICE_DSYM_PATH} "##
+echo "##SIMULATOR_DSYM_PATH: " ${SIMULATOR_DSYM_PATH} "##
+echo "##UNIVERSAL_LIBRARY_DIR: " ${UNIVERSAL_LIBRARY_DIR} "##
+echo "##FRAMEWORK: " ${FRAMEWORK} "##
+echo "##OUTPUT_DIR: " ${OUTPUT_DIR} "##
+
+echo "## run Xcodebuild -project fro iphone simulator ##"
+Xcodebuild -project ${PROJECT_NAME}.Xcodeproj -scheme ${FRAMEWORK_NAME} -sdk iphonesimulator -arch "i386" ONLY_ACTIVE_ARCH=NO VALID_ARCHS="i386 x86_64" -configuration ${CONFIGURATION} clean install CONFIGURATION_BUILD_DIR=${BUILD_DIR}/${CONFIGURATION}-iphonesimulator
+echo "## run Xcodebuild -project fro iphone os ##"
+Xcodebuild -project ${PROJECT_NAME}.Xcodeproj -scheme ${FRAMEWORK_NAME} -sdk iphoneos ONLY_ACTIVE_ARCH=NO -configuration ${CONFIGURATION} clean install CONFIGURATION_BUILD_DIR=${BUILD_DIR}/${CONFIGURATION}-iphoneos
+
+echo "## run rm -rf "${UNIVERSAL_LIBRARY_DIR}" ##"
+rm -rf "${UNIVERSAL_LIBRARY_DIR}"
+
+echo "## run mkdir "${UNIVERSAL_LIBRARY_DIR}" ##"
+mkdir "${UNIVERSAL_LIBRARY_DIR}"
+
+echo "## run mkdir "${FRAMEWORK}" ##"
+mkdir "${FRAMEWORK}"
+
+echo "## run rm -rf "$OUTPUT_DIR" ##"
+rm -rf "$OUTPUT_DIR"
+echo "## run mkdir -p "$OUTPUT_DIR" ##"
+mkdir -p "$OUTPUT_DIR"
+
+echo "## run cp -r "${DEVICE_LIBRARY_PATH}/." "${FRAMEWORK}" ##"
+cp -r "${DEVICE_LIBRARY_PATH}/." "${FRAMEWORK}"
+cp -r "${SIMULATOR_LIBRARY_PATH}/." "${FRAMEWORK}"
+
+echo "## run lipo "${SIMULATOR_LIBRARY_PATH}/${FRAMEWORK_NAME}" "${DEVICE_LIBRARY_PATH}/${FRAMEWORK_NAME}" -create -output "${FRAMEWORK}/${FRAMEWORK_NAME}" ##"
+##lipo "${SIMULATOR_LIBRARY_PATH}/${FRAMEWORK_NAME}" "${DEVICE_LIBRARY_PATH}/${FRAMEWORK_NAME}" -create -output "${FRAMEWORK}/${FRAMEWORK_NAME}" | echo
+lipo -create -output "${FRAMEWORK}/${FRAMEWORK_NAME}" "${SIMULATOR_LIBRARY_PATH}/${FRAMEWORK_NAME}" "${DEVICE_LIBRARY_PATH}/${FRAMEWORK_NAME}" | echo
+
+echo "## run cp -r "${FRAMEWORK}" "$OUTPUT_DIR" ##"
+cp -r "${FRAMEWORK}" "$OUTPUT_DIR"
+
+cp -r "${DEVICE_DSYM_PATH}" "$OUTPUT_DIR"
+lipo -create -output "$OUTPUT_DIR/${FRAMEWORK_NAME}.framework.dSYM/Contents/Resources/DWARF/${FRAMEWORK_NAME}" \
+"${DEVICE_DSYM_PATH}/Contents/Resources/DWARF/${FRAMEWORK_NAME}" \
+"${SIMULATOR_DSYM_PATH}/Contents/Resources/DWARF/${FRAMEWORK_NAME}" || exit 1
+
+UUIDs=$(dwarfdump --uuid "${DEVICE_DSYM_PATH}" | cut -d ' ' -f2)
+
+echo "## Start loop 1 ##"
+for file in `find "${DEVICE_BCSYMBOLMAP_PATH}" -name "*.bcsymbolmap" -type f`; do
+
+fileName=$(basename "$file" ".bcsymbolmap")
+
+echo "## fileName: " $fileName "##"
+
+echo "## Start loop 2 ##"
+for UUID in $UUIDs; do
+if [[ "$UUID" = "$fileName" ]]; then
+cp -R "$file" "$OUTPUT_DIR"
+dsymutil --symbol-map "$OUTPUT_DIR"/"$fileName".bcsymbolmap "$OUTPUT_DIR/${FRAMEWORK_NAME}.framework.dSYM"
+
+echo "## Copy to " $file "to " $OUTPUT_DIR " ##"
+
+fi
+done
+echo "## End loop 2 ##"
+done
+echo "## End loop 1 ##"
+echo "## DONE ##"
+done
+
+
